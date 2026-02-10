@@ -6,6 +6,9 @@ import { useAuth } from '@/context/AuthContext';
 import { MainCategory, ListingStatus } from '@/types/index';
 import { ChevronRight, ChevronLeft, Check, Image as ImageIcon, MapPin, Tag, DollarSign } from 'lucide-react';
 import { getAvailableCounties, getWardsForCounty } from '@/lib/countySelection';
+import ImageUpload from '@/components/ImageUpload';
+import ImageGallery from '@/components/ImageGallery';
+import { ListingImage } from '@/lib/imageUpload';
 
 type Step = 'category' | 'location' | 'details' | 'pricing' | 'images' | 'review';
 
@@ -36,7 +39,8 @@ interface FormData {
   pricePeriod: 'hour' | 'day' | 'night' | 'week' | 'month';
   amenities: string[];
   rules: string[];
-  images: File[];
+  images: ListingImage[];
+  listingId?: string;
 }
 
 const ListingCreatePage: FC = () => {
@@ -58,6 +62,7 @@ const ListingCreatePage: FC = () => {
     amenities: [],
     rules: [],
     images: [],
+    listingId: undefined,
   });
 
   if (!isAuthenticated) {
@@ -433,58 +438,75 @@ const ListingCreatePage: FC = () => {
             </div>
 
             <div className="space-y-6">
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-                <ImageIcon className="mx-auto mb-4 text-gray-400" size={48} />
-                <p className="text-gray-600 mb-2">Drag and drop images here or click to select</p>
-                <p className="text-sm text-gray-500">PNG, JPG up to 10MB each</p>
-                <input
-                  type="file"
-                  multiple
-                  accept="image/*"
-                  onChange={(e) => {
-                    if (e.target.files) {
-                      setFormData({ ...formData, images: Array.from(e.target.files) });
-                    }
-                  }}
-                  className="hidden"
-                  id="images"
-                />
-                <label
-                  htmlFor="images"
-                  className="inline-block mt-4 px-6 py-2 bg-blue-600 text-white rounded-lg cursor-pointer hover:bg-blue-700"
-                >
-                  Select Images
-                </label>
+              {/* Upload Instructions */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-blue-900">
+                  📸 Upload high-quality photos of your property. First image will be set as primary (cover photo).
+                </p>
               </div>
 
+              {/* Image Upload Component */}
+              {!formData.listingId && (
+                <ImageUpload
+                  listingId=""
+                  onError={(error) => setError(error)}
+                  onImageUploaded={(image) => {
+                    setFormData((prev) => ({
+                      ...prev,
+                      images: [...prev.images, image],
+                    }));
+                  }}
+                />
+              )}
+
+              {/* Display existing images for review */}
               {formData.images.length > 0 && (
-                <div className="grid grid-cols-3 gap-4">
-                  {formData.images.map((image, idx) => (
-                    <div key={idx} className="relative">
-                      <img
-                        src={URL.createObjectURL(image)}
-                        alt={`Preview ${idx}`}
-                        className="w-full h-32 object-cover rounded-lg"
-                      />
-                      <p className="text-xs text-gray-600 mt-1 truncate">{image.name}</p>
-                    </div>
-                  ))}
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-4">
+                    Uploaded Images ({formData.images.length})
+                  </h3>
+                  <div className="grid grid-cols-3 gap-4">
+                    {formData.images.map((image) => (
+                      <div key={image.id} className="relative">
+                        <img
+                          src={image.image_url}
+                          alt="Uploaded"
+                          className="w-full h-32 object-cover rounded-lg border-2 border-blue-200"
+                        />
+                        {image.is_primary && (
+                          <div className="absolute top-2 right-2 bg-blue-600 text-white text-xs px-2 py-1 rounded">
+                            Primary
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
+
+              {error && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-red-600 text-sm">{error}</p>
+                </div>
+              )}
+
+              <p className="text-xs text-gray-500">
+                You can add more images after creating the listing. At least one image is recommended.
+              </p>
             </div>
 
             {/* Navigation */}
             <div className="flex gap-4 mt-8">
               <button
                 onClick={handlePrevStep}
-                className="flex items-center gap-2 px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                className="flex items-center gap-2 px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 <ChevronLeft size={18} />
                 Back
               </button>
               <button
                 onClick={handleNextStep}
-                className="flex-1 flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                className="flex-1 flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
                 Next
                 <ChevronRight size={18} />
