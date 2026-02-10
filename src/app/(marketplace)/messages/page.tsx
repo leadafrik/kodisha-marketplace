@@ -3,191 +3,205 @@
 import { FC, useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { Send, Search, Plus, MoreVertical } from 'lucide-react';
+import { Send, Search, Plus, MoreVertical, Loader2 } from 'lucide-react';
+import { messagingService } from '@/lib/messaging';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 interface Message {
   id: string;
-  conversationId: string;
-  senderId: string;
-  senderName: string;
-  senderAvatar: string;
+  conversation_id: string;
+  sender_id: string;
+  sender_name?: string;
+  sender_avatar?: string;
   content: string;
-  timestamp: Date;
-  isRead: boolean;
+  created_at: string;
+  is_read?: boolean;
 }
 
 interface Conversation {
   id: string;
-  participantId: string;
-  participantName: string;
-  participantAvatar: string;
-  lastMessage: string;
-  lastMessageTime: Date;
-  unreadCount: number;
-  listingId?: string;
-  listingTitle?: string;
+  participant_ids: string[];
+  participant_name?: string;
+  participant_avatar?: string;
+  last_message: string;
+  last_message_time: string;
+  unread_count: number;
+  listing_id?: string;
+  listing_title?: string;
+  other_user_id?: string;
 }
 
 // Mock data
-const mockConversations: Conversation[] = [
-  {
-    id: 'conv1',
-    participantId: 'user2',
-    participantName: 'James Mwangi',
-    participantAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=james',
-    lastMessage: 'When can you confirm the booking?',
-    lastMessageTime: new Date(Date.now() - 2 * 60 * 60 * 1000),
-    unreadCount: 2,
-    listingId: 'listing1',
-    listingTitle: 'Cozy Studio in Westlands',
-  },
-  {
-    id: 'conv2',
-    participantId: 'user3',
-    participantName: 'Sarah Kipchoge',
-    participantAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sarah',
-    lastMessage: "The equipment worked perfectly! Thanks again.",
-    lastMessageTime: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
-    unreadCount: 0,
-    listingId: 'listing3',
-    listingTitle: 'Professional Video Camera 4K',
-  },
-  {
-    id: 'conv3',
-    participantId: 'user4',
-    participantName: 'Peter Omondi',
-    participantAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=peter',
-    lastMessage: 'Is the conference room available next week?',
-    lastMessageTime: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
-    unreadCount: 1,
-    listingId: 'listing2',
-    listingTitle: 'Modern Conference Room - CBD',
-  },
-];
-
-const mockMessages: Record<string, Message[]> = {
-  conv1: [
-    {
-      id: 'msg1',
-      conversationId: 'conv1',
-      senderId: 'user2',
-      senderName: 'James Mwangi',
-      senderAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=james',
-      content: 'Hi! I just booked your studio. Is it available next week?',
-      timestamp: new Date(Date.now() - 4 * 60 * 60 * 1000),
-      isRead: true,
-    },
-    {
-      id: 'msg2',
-      conversationId: 'conv1',
-      senderId: 'currentUser',
-      senderName: 'You',
-      senderAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=you',
-      content: 'Yes, it is! I can confirm your booking right away.',
-      timestamp: new Date(Date.now() - 3 * 60 * 60 * 1000),
-      isRead: true,
-    },
-    {
-      id: 'msg3',
-      conversationId: 'conv1',
-      senderId: 'user2',
-      senderName: 'James Mwangi',
-      senderAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=james',
-      content: 'When can you confirm the booking?',
-      timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
-      isRead: false,
-    },
-  ],
-  conv2: [
-    {
-      id: 'msg4',
-      conversationId: 'conv2',
-      senderId: 'user3',
-      senderName: 'Sarah Kipchoge',
-      senderAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sarah',
-      content: "The equipment worked perfectly! Thanks again.",
-      timestamp: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
-      isRead: true,
-    },
-  ],
-};
+const mockConversations: Conversation[] = [];
 
 const MessagesPage: FC = () => {
   const router = useRouter();
-  const { isAuthenticated } = useAuth();
-  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(
-    mockConversations[0]
-  );
-  const [conversations, setConversations] = useState<Conversation[]>(mockConversations);
-  const [messages, setMessages] = useState<Message[]>(mockMessages['conv1'] || []);
+  const { isAuthenticated, user } = useAuth();
+  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSending, setIsSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const unsubscribeRef = useRef<(() => void) | null>(null);
+  const conversationsUnsubscribeRef = useRef<(() => void) | null>(null);
 
   if (!isAuthenticated) {
     router.push('/auth/login');
     return null;
   }
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  // Load conversations
+  useEffect(() => {
+    const loadConversations = async () => {
+      try {
+        setIsLoading(true);
+        const response = await fetch('/api/messages/conversations');
+        const data = await response.json();
 
+        if (response.ok) {
+          setConversations(data.conversations || []);
+        } else {
+          setError(data.error || 'Failed to load conversations');
+        }
+      } catch (err: any) {
+        setError(err.message);
+        console.error('Error loading conversations:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadConversations();
+  }, []);
+
+  // Load messages when conversation is selected
+  useEffect(() => {
+    const loadMessages = async () => {
+      if (!selectedConversation) return;
+
+      try {
+        const response = await fetch(
+          `/api/messages/get?conversationId=${selectedConversation.id}`
+        );
+        const data = await response.json();
+
+        if (response.ok) {
+          setMessages(data.messages || []);
+        } else {
+          setError(data.error || 'Failed to load messages');
+        }
+      } catch (err: any) {
+        setError(err.message);
+        console.error('Error loading messages:', err);
+      }
+    };
+
+    loadMessages();
+  }, [selectedConversation]);
+
+  // Subscribe to real-time messages
+  useEffect(() => {
+    if (!selectedConversation) return;
+
+    // Unsubscribe from previous conversation
+    if (unsubscribeRef.current) {
+      unsubscribeRef.current();
+    }
+
+    // Subscribe to new messages
+    unsubscribeRef.current = messagingService.subscribeToMessages(
+      selectedConversation.id,
+      (newMsg: any) => {
+        setMessages((prev) => [...prev, newMsg]);
+      }
+    );
+
+    return () => {
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+      }
+    };
+  }, [selectedConversation]);
+
+  // Subscribe to real-time conversation updates
+  useEffect(() => {
+    if (!user?.id) return;
+
+    conversationsUnsubscribeRef.current = messagingService.subscribeToConversations(
+      user.id,
+      (updatedConv: any) => {
+        setConversations((prev) =>
+          prev.map((conv) =>
+            conv.id === updatedConv.id ? { ...conv, ...updatedConv } : conv
+          )
+        );
+      }
+    );
+
+    return () => {
+      if (conversationsUnsubscribeRef.current) {
+        conversationsUnsubscribeRef.current();
+      }
+    };
+  }, [user?.id]);
+
+  // Scroll to bottom when messages change
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
   const handleSelectConversation = (conversation: Conversation) => {
     setSelectedConversation(conversation);
-    setMessages(mockMessages[conversation.id] || []);
-    
-    // Mark as read
-    setConversations((prev) =>
-      prev.map((conv) =>
-        conv.id === conversation.id ? { ...conv, unreadCount: 0 } : conv
-      )
-    );
   };
 
   const handleSendMessage = async () => {
-    if (!newMessage.trim() || !selectedConversation) return;
+    if (!newMessage.trim() || !selectedConversation || !user?.id) return;
 
-    setIsLoading(true);
+    setIsSending(true);
+    setError(null);
 
-    // Add message optimistically
-    const message: Message = {
-      id: `msg${Date.now()}`,
-      conversationId: selectedConversation.id,
-      senderId: 'currentUser',
-      senderName: 'You',
-      senderAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=you',
-      content: newMessage,
-      timestamp: new Date(),
-      isRead: true,
-    };
+    try {
+      const response = await fetch('/api/messages/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationId: selectedConversation.id,
+          content: newMessage,
+        }),
+      });
 
-    setMessages((prev) => [...prev, message]);
-    setNewMessage('');
+      const data = await response.json();
 
-    // TODO: When Supabase is configured, send to API
-    // const response = await fetch('/api/messages/send', {
-    //   method: 'POST',
-    //   headers: { 'Content-Type': 'application/json' },
-    //   body: JSON.stringify({
-    //     conversationId: selectedConversation.id,
-    //     content: newMessage,
-    //   }),
-    // });
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to send message');
+      }
 
-    console.log('Message sent:', message);
-    setIsLoading(false);
+      setNewMessage('');
+    } catch (err: any) {
+      setError(err.message);
+      console.error('Error sending message:', err);
+    } finally {
+      setIsSending(false);
+    }
   };
 
   const filteredConversations = conversations.filter(
     (conv) =>
-      conv.participantName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      conv.listingTitle?.toLowerCase().includes(searchQuery.toLowerCase())
+      conv.participant_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      conv.listing_title?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -219,9 +233,13 @@ const MessagesPage: FC = () => {
 
           {/* Conversations List */}
           <div className="flex-1 overflow-y-auto">
-            {filteredConversations.length === 0 ? (
+            {isLoading ? (
+              <div className="p-8 text-center">
+                <Loader2 className="w-6 h-6 animate-spin text-gray-400 mx-auto" />
+              </div>
+            ) : filteredConversations.length === 0 ? (
               <div className="p-8 text-center text-gray-500">
-                <p>No conversations found</p>
+                <p>No conversations yet</p>
               </div>
             ) : (
               filteredConversations.map((conversation) => (
@@ -234,31 +252,31 @@ const MessagesPage: FC = () => {
                 >
                   <div className="flex items-center gap-3">
                     <img
-                      src={conversation.participantAvatar}
-                      alt={conversation.participantName}
+                      src={conversation.participant_avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=user'}
+                      alt={conversation.participant_name}
                       className="w-12 h-12 rounded-full"
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                         <h3 className="font-semibold text-gray-900 truncate">
-                          {conversation.participantName}
+                          {conversation.participant_name}
                         </h3>
-                        {conversation.unreadCount > 0 && (
+                        {conversation.unread_count > 0 && (
                           <span className="bg-blue-600 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
-                            {conversation.unreadCount}
+                            {conversation.unread_count}
                           </span>
                         )}
                       </div>
-                      {conversation.listingTitle && (
+                      {conversation.listing_title && (
                         <p className="text-xs text-gray-500 truncate">
-                          {conversation.listingTitle}
+                          {conversation.listing_title}
                         </p>
                       )}
                       <p className="text-sm text-gray-600 truncate">
-                        {conversation.lastMessage}
+                        {conversation.last_message}
                       </p>
                       <p className="text-xs text-gray-400 mt-1">
-                        {conversation.lastMessageTime.toLocaleDateString()}
+                        {new Date(conversation.last_message_time).toLocaleDateString()}
                       </p>
                     </div>
                   </div>
@@ -275,17 +293,17 @@ const MessagesPage: FC = () => {
             <div className="p-4 border-b border-gray-200 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <img
-                  src={selectedConversation.participantAvatar}
-                  alt={selectedConversation.participantName}
+                  src={selectedConversation.participant_avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=user'}
+                  alt={selectedConversation.participant_name}
                   className="w-10 h-10 rounded-full"
                 />
                 <div>
                   <h2 className="font-bold text-gray-900">
-                    {selectedConversation.participantName}
+                    {selectedConversation.participant_name}
                   </h2>
-                  {selectedConversation.listingTitle && (
+                  {selectedConversation.listing_title && (
                     <p className="text-sm text-gray-600">
-                      {selectedConversation.listingTitle}
+                      {selectedConversation.listing_title}
                     </p>
                   )}
                 </div>
@@ -295,16 +313,23 @@ const MessagesPage: FC = () => {
               </button>
             </div>
 
+            {/* Error message */}
+            {error && (
+              <div className="px-4 py-2 bg-red-50 border-b border-red-200 text-red-700 text-sm">
+                {error}
+              </div>
+            )}
+
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
               {messages.map((message) => (
                 <div
                   key={message.id}
-                  className={`flex ${message.senderId === 'currentUser' ? 'justify-end' : 'justify-start'}`}
+                  className={`flex ${message.sender_id === user?.id ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
                     className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
-                      message.senderId === 'currentUser'
+                      message.sender_id === user?.id
                         ? 'bg-blue-600 text-white'
                         : 'bg-gray-200 text-gray-900'
                     }`}
@@ -312,12 +337,12 @@ const MessagesPage: FC = () => {
                     <p className="break-words">{message.content}</p>
                     <p
                       className={`text-xs mt-1 ${
-                        message.senderId === 'currentUser'
+                        message.sender_id === user?.id
                           ? 'text-blue-100'
                           : 'text-gray-500'
                       }`}
                     >
-                      {message.timestamp.toLocaleTimeString([], {
+                      {new Date(message.created_at).toLocaleTimeString([], {
                         hour: '2-digit',
                         minute: '2-digit',
                       })}
@@ -342,14 +367,19 @@ const MessagesPage: FC = () => {
                     }
                   }}
                   placeholder="Type your message..."
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={isSending}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
                 />
                 <button
                   onClick={handleSendMessage}
-                  disabled={!newMessage.trim() || isLoading}
-                  className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+                  disabled={!newMessage.trim() || isSending}
+                  className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
                 >
-                  <Send size={20} />
+                  {isSending ? (
+                    <Loader2 size={20} className="animate-spin" />
+                  ) : (
+                    <Send size={20} />
+                  )}
                 </button>
               </div>
             </div>
