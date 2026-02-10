@@ -1,22 +1,68 @@
 'use client';
 
-import { FC, useState } from 'react';
+import { FC, useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Sliders, Search, ChevronDown, Grid, Map } from 'lucide-react';
+import { Sliders, Search, ChevronDown, Grid, Map, Loader } from 'lucide-react';
 import ListingCard from '@/components/listings/ListingCard';
 import { Listing, ListingStatus } from '@/types';
 
 const BrowsePage: FC = () => {
   const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid');
   const [sortBy, setSortBy] = useState('recent');
+  const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState({
     county: 'all',
     priceMin: 0,
     priceMax: 1000000,
     verification: 'all',
   });
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalListings, setTotalListings] = useState(0);
 
-  // Mock data - will be replaced with actual data from API
+  // Fetch listings from API
+  useEffect(() => {
+    const fetchListings = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        const params = new URLSearchParams({
+          page: currentPage.toString(),
+          limit: '12',
+          sort: sortBy,
+          ...(searchQuery && { search: searchQuery }),
+        });
+
+        const response = await fetch(`/api/listings?${params}`);
+        const data = await response.json();
+
+        if (data.success) {
+          setListings(data.data.listings);
+          setTotalPages(data.data.totalPages);
+          setTotalListings(data.data.total);
+        } else {
+          setError(data.error || 'Failed to fetch listings');
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'An error occurred');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchListings();
+  }, [currentPage, sortBy, searchQuery]);
+
+  const handleSearch = (value: string) => {
+    setSearchQuery(value);
+    setCurrentPage(1);
+  };
+
+  // Original mock data is no longer needed
   const mockListings: Listing[] = [
     {
       id: '1',
@@ -122,6 +168,8 @@ const BrowsePage: FC = () => {
               <input
                 type="text"
                 placeholder="Search listings..."
+                value={searchQuery}
+                onChange={(e) => handleSearch(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -187,17 +235,67 @@ const BrowsePage: FC = () => {
 
         {/* Results */}
         <div className="mb-8">
-          <p className="text-sm text-gray-600 mb-4">Showing {mockListings.length} results</p>
+          <p className="text-sm text-gray-600 mb-4">
+            Showing {listings.length} of {totalListings} results
+          </p>
 
-          {viewMode === 'grid' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {mockListings.map((listing) => (
-                <ListingCard key={listing.id} listing={listing} />
-              ))}
+          {/* Error State */}
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 text-red-700">
+              Error loading listings: {error}
             </div>
           )}
 
-          {viewMode === 'map' && (
+          {/* Loading State */}
+          {loading && (
+            <div className="flex justify-center items-center py-12">
+              <Loader className="animate-spin text-blue-600" size={32} />
+            </div>
+          )}
+
+          {/* Grid View */}
+          {!loading && viewMode === 'grid' && (
+            <>
+              {listings.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                  {listings.map((listing) => (
+                    <ListingCard key={listing.id} listing={listing} />
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <p className="text-gray-600 text-lg">No listings found</p>
+                  <p className="text-gray-500 mt-2">Try adjusting your search or filters</p>
+                </div>
+              )}
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex justify-center items-center space-x-4 mt-8">
+                  <button
+                    onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                    disabled={currentPage === 1}
+                    className="px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-50 transition"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-gray-600">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-50 transition"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Map View Placeholder */}
+          {!loading && viewMode === 'map' && (
             <div className="w-full h-96 bg-gray-200 rounded-2xl flex items-center justify-center">
               <div className="text-center">
                 <p className="text-gray-600 font-semibold mb-2">Map View Coming Soon</p>
