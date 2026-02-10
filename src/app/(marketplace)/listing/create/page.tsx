@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { MainCategory, ListingStatus } from '@/types/index';
 import { ChevronRight, ChevronLeft, Check, Image as ImageIcon, MapPin, Tag, DollarSign } from 'lucide-react';
+import { getAvailableCounties, getWardsForCounty } from '@/lib/countySelection';
 
 type Step = 'category' | 'location' | 'details' | 'pricing' | 'images' | 'review';
 
@@ -174,6 +175,8 @@ const ListingCreatePage: FC = () => {
   // Step 2: Subcategory & Location
   if (currentStep === 'location') {
     const subcategories = getSubcategories(formData.category as MainCategory);
+    const counties = getAvailableCounties();
+    const wards = formData.county ? getWardsForCounty(formData.county) : [];
 
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 py-12 px-4">
@@ -204,7 +207,7 @@ const ListingCreatePage: FC = () => {
                 </select>
               </div>
 
-              {/* County */}
+              {/* County - Now Dynamic from Kenya data */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-3">
                   <MapPin className="inline mr-2" size={18} />
@@ -212,29 +215,50 @@ const ListingCreatePage: FC = () => {
                 </label>
                 <select
                   value={formData.county}
-                  onChange={(e) => setFormData({ ...formData, county: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onChange={(e) => {
+                    // Reset ward when county changes for better UX
+                    setFormData({ ...formData, county: e.target.value, ward: '' });
+                  }}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all hover:border-blue-400"
                 >
-                  <option value="">Select county</option>
-                  <option value="nairobi">Nairobi</option>
-                  <option value="mombasa">Mombasa</option>
-                  <option value="kisumu">Kisumu</option>
-                  <option value="nakuru">Nakuru</option>
+                  <option value="">Select a county...</option>
+                  {counties.map((county) => (
+                    <option key={county} value={county}>
+                      {county}
+                    </option>
+                  ))}
                 </select>
               </div>
 
-              {/* Ward */}
+              {/* Ward - Smart Cascading Dropdown */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-3">
+                  <MapPin className="inline mr-2" size={18} />
                   Ward / Area
                 </label>
-                <input
-                  type="text"
-                  value={formData.ward}
-                  onChange={(e) => setFormData({ ...formData, ward: e.target.value })}
-                  placeholder="e.g., Westlands, CBD, Karen"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                {wards.length > 0 ? (
+                  <select
+                    value={formData.ward}
+                    onChange={(e) => setFormData({ ...formData, ward: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all hover:border-blue-400"
+                  >
+                    <option value="">Select a ward...</option>
+                    {wards.map((ward) => (
+                      <option key={ward} value={ward}>
+                        {ward}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={formData.ward}
+                    onChange={(e) => setFormData({ ...formData, ward: e.target.value })}
+                    placeholder="Please select a county first"
+                    disabled={!formData.county}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed transition-all"
+                  />
+                )}
               </div>
             </div>
 
@@ -242,15 +266,15 @@ const ListingCreatePage: FC = () => {
             <div className="flex gap-4 mt-8">
               <button
                 onClick={handlePrevStep}
-                className="flex items-center gap-2 px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                className="flex items-center gap-2 px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 <ChevronLeft size={18} />
                 Back
               </button>
               <button
                 onClick={handleNextStep}
-                disabled={!formData.subcategory || !formData.county}
-                className="flex-1 flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+                disabled={!formData.subcategory || !formData.county || !formData.ward}
+                className="flex-1 flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
               >
                 Next
                 <ChevronRight size={18} />
